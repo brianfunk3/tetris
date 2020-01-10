@@ -35,7 +35,7 @@ def screen_record(timetrial = False, capture='screen', show=False):
 
     while(True):
         if capture == 'screen':
-            monitor = {"top": 0, "left": 0, "width": 950, "height": 1080}
+            monitor = {"top": 0, "left": 1720, "width": 1720, "height": 1440}
             sct_img = sct.grab(monitor)
             printscreen = np.array(sct_img)
         elif capture == 'cam':
@@ -46,10 +46,12 @@ def screen_record(timetrial = False, capture='screen', show=False):
         #smooth = cv2.GaussianBlur(gray,(5,5),0)
         # threshold the image - actually a bad idea lol
         #thresh = cv2.threshold(gray,160,255,cv2.THRESH_BINARY)[1]
+        """
         thresh = cv2.adaptiveThreshold(gray,255,cv2.ADAPTIVE_THRESH_GAUSSIAN_C,\
             cv2.THRESH_BINARY,11,2)
+        """
         # edge detection
-        edges = cv2.Canny(thresh,100,200)
+        edges = cv2.Canny(printscreen,300,700)
         # find contours
         contours, hierarchy = cv2.findContours(edges, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
         # approximate the polys (if existent)?
@@ -71,7 +73,7 @@ def screen_record(timetrial = False, capture='screen', show=False):
 
         # show the screen
         if show:
-            cv2.imshow('testing things', thresh)
+            cv2.imshow('testing things', printscreen)
 
             if cv2.waitKey(25) & 0xFF == ord('q'):
                 cv2.destroyAllWindows()
