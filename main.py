@@ -13,6 +13,9 @@ Testing space. Goal is to find an appropriate way to find a rectangle on screen 
 4. Find error across clustering and use some threshold for making classification. Actually I might just want to get some
    error number to use and have classification made in main loop.
    
+   
+# Threshold on the border, then search inward for pooling average below thresh to get board dimensions
+   
 helpful? : https://stackoverflow.com/questions/7263621/how-to-find-corners-on-a-image-using-opencv
 """
 ratio_error = .01
@@ -45,13 +48,14 @@ def screen_record(timetrial = False, capture='screen', show=False):
         # smooth the image
         #smooth = cv2.GaussianBlur(gray,(5,5),0)
         # threshold the image - actually a bad idea lol
-        #thresh = cv2.threshold(gray,160,255,cv2.THRESH_BINARY)[1]
+        thresh = cv2.threshold(printscreen,127,255,cv2.THRESH_TOZERO)[1]
+        doubthresh = cv2.threshold(thresh, 230, 255, cv2.THRESH_TRUNC)[1]
         """
         thresh = cv2.adaptiveThreshold(gray,255,cv2.ADAPTIVE_THRESH_GAUSSIAN_C,\
             cv2.THRESH_BINARY,11,2)
         """
         # edge detection
-        edges = cv2.Canny(printscreen,300,700)
+        edges = cv2.Canny(thresh,300,700)
         # find contours
         contours, hierarchy = cv2.findContours(edges, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
         # approximate the polys (if existent)?
@@ -73,7 +77,7 @@ def screen_record(timetrial = False, capture='screen', show=False):
 
         # show the screen
         if show:
-            cv2.imshow('testing things', printscreen)
+            cv2.imshow('testing things', doubthresh)
 
             if cv2.waitKey(25) & 0xFF == ord('q'):
                 cv2.destroyAllWindows()
