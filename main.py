@@ -3,6 +3,7 @@ from PIL import Image
 import cv2
 import time
 import mss
+import numpy as np
 
 """
 Testing space. Goal is to find an appropriate way to find a rectangle on screen and determine if it is a Tetris game
@@ -19,14 +20,11 @@ Testing space. Goal is to find an appropriate way to find a rectangle on screen 
 helpful? : https://stackoverflow.com/questions/7263621/how-to-find-corners-on-a-image-using-opencv
 """
 ratio_error = .01
+lower = np.array([100,0,0])
+upper = np.array([225,80,80])
 
 def tetrisy(c):
     return True
-    """
-    return (1-ratio_error) <= (c[0][0]/c[3][0]) <= (1+ratio_error) and (1-ratio_error) <= (c[1][0]/c[2][0]) <= (1+ratio_error) \
-        and (1-ratio_error) <= (c[0][1]/c[3][1]) <= (1+ratio_error) and (1-ratio_error) <= (c[1][1]/c[2][1]) <= (1+ratio_error) #\
-        #and abs(c[1][1]-c[2][1])*(1-ratio_error) <= abs(c[0][0]-c[1][0])*2 <= abs(c[1][1]-c[2][1])*(1+ratio_error)
-    """
 
 def screen_record(timetrial = False, capture='screen', show=False):
     if timetrial:
@@ -44,18 +42,19 @@ def screen_record(timetrial = False, capture='screen', show=False):
         elif capture == 'cam':
             printscreen = camera.read()[1]
         # convert image to grayscale
-        gray = cv2.cvtColor(printscreen, cv2.COLOR_BGR2GRAY)
+        #gray = cv2.cvtColor(printscreen, cv2.COLOR_BGR2GRAY)
         # smooth the image
         #smooth = cv2.GaussianBlur(gray,(5,5),0)
-        # threshold the image - actually a bad idea lol
-        thresh = cv2.threshold(printscreen,127,255,cv2.THRESH_TOZERO)[1]
-        doubthresh = cv2.threshold(thresh, 230, 255, cv2.THRESH_TRUNC)[1]
-        """
-        thresh = cv2.adaptiveThreshold(gray,255,cv2.ADAPTIVE_THRESH_GAUSSIAN_C,\
-            cv2.THRESH_BINARY,11,2)
-        """
+        # threshold the image - actually a bad idea for color lol
+
+        ## NEW specific color thresholding
+        gray = cv2.cvtColor(printscreen, cv2.COLOR_BGR2GRAY)
+        print(printscreen.shape)
+        mask = cv2.inRange(printscreen,lower,upper)
+        mask = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
+
         # edge detection
-        edges = cv2.Canny(thresh,300,700)
+        edges = cv2.Canny(printscreen,300,700)
         # find contours
         contours, hierarchy = cv2.findContours(edges, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
         # approximate the polys (if existent)?
@@ -77,7 +76,7 @@ def screen_record(timetrial = False, capture='screen', show=False):
 
         # show the screen
         if show:
-            cv2.imshow('testing things', doubthresh)
+            cv2.imshow('testing things', mask)
 
             if cv2.waitKey(25) & 0xFF == ord('q'):
                 cv2.destroyAllWindows()
