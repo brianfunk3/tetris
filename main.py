@@ -4,6 +4,9 @@ import cv2
 import time
 import mss
 from scipy.spatial import distance as dist
+import skimage.measure
+from sklearn.cluster import MiniBatchKMeans
+import matplotlib.pyplot as plt
 
 """
 okay time for the big hurrah
@@ -67,7 +70,7 @@ def screen_record(timetrial = False, capture='screen', show=False):
 
     while(True):
         if capture == 'screen':
-            monitor = {"top": 0, "left": 1720, "width": 1720, "height": 1440}
+            monitor = {"top": 0, "left": 0, "width": 3440, "height": 1440}
             sct_img = sct.grab(monitor)
             printscreen = np.array(sct_img)
         elif capture == 'cam':
@@ -102,13 +105,16 @@ def screen_record(timetrial = False, capture='screen', show=False):
                     if tetrisy(poly):
                         # at this point, blank board has been found so now need to matrify and learn
                         # approximate true shape/size
-                        x1 = (poly[0][0] + poly[3][0])/2
-                        y1 = (poly[0][1] + poly[1][1])/2
-                        x2 = (poly[3][0] + poly[2][0])/2
-                        y2 = (poly[1][1] + poly[2][1])/2
+                        x1 = (poly[3][0] + poly[0][0])/2
+                        y1 = (poly[3][1] + poly[2][1])/2
+                        x2 = (poly[1][0] + poly[2][0])/2
+                        y2 = (poly[0][1] + poly[1][1])/2
                         # find pixel size of squares
-                        px = x2-x1/10
-                        py = y2-y1/20
+                        px = (x2-x1)/10
+                        py = (y1-y2)/20
+                        avp = round((px+py)/2,0)
+                        learn(int(x2),int(y2),avp)
+                        exit()
                         # saving these in case I want to draw again
                         #poly = poly.reshape((-1,1,2))
                         #cv2.polylines(printscreen,np.int32([poly]),True,(0,255,0), thickness=3)
@@ -125,5 +131,73 @@ def screen_record(timetrial = False, capture='screen', show=False):
                 cv2.destroyAllWindows()
                 break
 
+def learn(x0,y0,p):
+    # for trying to learn suspected game
+    w = int(10*p)
+    h = int(20*p)
+    sct = mss.mss()
+    monitor = {"top": y0, "left": x0-w, "width": w, "height": h}
 
-screen_record(show=True)
+    # make larger collection array
+    collected = None
+    captures = 0
+
+    while(captures < 500):
+        #print('capping')
+        sct_img = sct.grab(monitor)
+        board = np.array(sct_img)
+
+        #filter out some grossies
+        thresh = cv2.threshold(board, 90, 255, cv2.THRESH_TOZERO)[1]
+
+        #avg pool
+        pooledzero = skimage.measure.block_reduce(thresh[:, :, 0], (int(p), int(p)), np.median)
+        pooledone = skimage.measure.block_reduce(thresh[:, :, 1], (int(p), int(p)), np.median)
+        pooledtwo = skimage.measure.block_reduce(thresh[:, :, 2], (int(p), int(p)), np.median)
+
+        combo = np.dstack((pooledtwo,pooledone,pooledzero))
+
+        if collected is not None:
+            collected = np.vstack((collected,combo))
+        else:
+            collected = combo
+
+        captures += 1
+
+        cv2.imshow('testing things', thresh)
+        #plt.imshow((combo*255).astype(np.uint8))
+        #print('showing')
+        #plt.show()
+
+        if cv2.waitKey(25) & 0xFF == ord('q'):
+            cv2.destroyAllWindows()
+            break
+
+    # now need to flatten
+    dim = collected.shape[0]*10
+    collected = np.reshape(collected,(dim,3))
+
+    #kmeans clustering
+    clustered = MiniBatchKMeans(n_clusters=9,random_state=0).fit(collected)
+
+    fit = clustered.inertia_/dim
+
+    print('fit is ' + str(fit))
+
+    if fit > 700:
+        # probably not a board
+        print('probably not a board')
+        return
+    elif fit > 200:
+        print('could be a board - redo')
+        learn(x0,y0,p)
+        return
+    else:
+        print('probably a board')
+        print(clustered.cluster_centers_)
+
+
+
+
+
+screen_record(show=False)
