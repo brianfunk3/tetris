@@ -136,8 +136,33 @@ def learn(x0,y0,p):
     w = int(10*p)
     h = int(20*p)
     sct = mss.mss()
-    monitor = {"top": y0, "left": x0-w, "width": w, "height": h}
+    monitor = {"top": y0, "left": x0-w, "width": w, "height": int(h/3)}
 
+    captures = 0
+
+    #new method of isolating the pieces to learn color.
+    while(captures < 200):
+        #print('capping')
+        sct_img = sct.grab(monitor)
+        board = np.array(sct_img)
+
+        #filter out some grossies
+        thresh = cv2.threshold(board, 90, 255, cv2.THRESH_TOZERO)[1]
+        edges = cv2.Canny(thresh,100,900)
+        # find contours
+        contours, hierarchy = cv2.findContours(edges, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+
+        captures += 1
+
+        cv2.imshow('testing things', edges)
+
+        if cv2.waitKey(25) & 0xFF == ord('q'):
+            cv2.destroyAllWindows()
+            break
+
+    """
+    CODE GRAVEYARD
+    
     # make larger collection array
     collected = None
     captures = 0
@@ -195,6 +220,7 @@ def learn(x0,y0,p):
     else:
         print('probably a board')
         print(clustered.cluster_centers_)
+    """
 
 
 
