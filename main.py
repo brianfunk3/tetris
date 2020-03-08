@@ -4,6 +4,7 @@ import cv2
 import time
 import mss
 from scipy.spatial import distance as dist
+import ctypes
 import skimage.measure
 from sklearn.cluster import MiniBatchKMeans
 import matplotlib.pyplot as plt
@@ -15,7 +16,9 @@ Implementation TODO:
 2. Watch found board and check to see if if makes sense as a board?
 3. Find details of board and write to known once done?
 """
-error = .1
+recterror = .1
+polyerror = .05
+eucerror = 1
 
 # give two points, return the slope. Ez Pz
 def slope(p1,p2):
@@ -32,7 +35,7 @@ def tetrisy(c):
     three = abs(slope(c[0],c[1]))
     four = abs(slope(c[2],c[3]))
 
-    if (one <= error) and (two <= error) and (three <= error) and (four <= error):
+    if (one <= recterror) and (two <= recterror) and (three <= recterror) and (four <= recterror):
         return True
 
 # reorders contour points into clockwise order for evaluation
@@ -65,12 +68,14 @@ def screen_record(timetrial = False, capture='screen', show=False):
         last_time = time.time()
     if capture == 'screen':
         sct = mss.mss()
+        user32 = ctypes.windll.user32
+        screensize = user32.GetSystemMetrics(0), user32.GetSystemMetrics(1)
     elif capture == 'cam':
         camera = cv2.VideoCapture(0)
 
     while(True):
         if capture == 'screen':
-            monitor = {"top": 0, "left": 0, "width": 3440, "height": 1440}
+            monitor = {"top": 0, "left": 0, "width": screensize[0], "height": screensize[1]}
             sct_img = sct.grab(monitor)
             printscreen = np.array(sct_img)
         elif capture == 'cam':
@@ -136,94 +141,53 @@ def learn(x0,y0,p):
     w = int(10*p)
     h = int(20*p)
     sct = mss.mss()
-    monitor = {"top": y0, "left": x0-w, "width": w, "height": int(h/3)}
+    monitor = {"top": y0-5, "left": x0-w, "width": w, "height": int(h/3)}
 
     captures = 0
+    colors = {(0,0,0):0,(125,125,125):0}
+
 
     #new method of isolating the pieces to learn color.
-    while(captures < 200):
-        #print('capping')
+    while(captures < 5000):
         sct_img = sct.grab(monitor)
         board = np.array(sct_img)
 
         #filter out some grossies
-        thresh = cv2.threshold(board, 90, 255, cv2.THRESH_TOZERO)[1]
-        edges = cv2.Canny(thresh,100,900)
+        board = cv2.threshold(board,120,255,cv2.THRESH_TOZERO)[1]
+        hsv = cv2.cvtColor(board,cv2.COLOR_BGR2HSV)
+        h,s,v = cv2.split(hsv)
+        thresh = cv2.threshold(s, 100, 255, cv2.THRESH_BINARY)[1]
+        #LOOK UP THRESHOLIND THINGS
+        edges = cv2.Canny(thresh,500,1000)
         # find contours
         contours, hierarchy = cv2.findContours(edges, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
 
+        if len(contours) > 0:
+            for c in contours:
+                peri = cv2.arcLength(c, True)
+                poly = cv2.approxPolyDP(c,.04 * peri,True)
+                a=p*p*4
+                real = cv2.contourArea(poly)
+                if p*p*4*(1-polyerror) < real < p*p*4*(1+polyerror):
+                    #print('we want ' + str(a) + ' but we got ' + str(real))
+                    mask = np.zeros(hsv.shape[:2],dtype=np.uint8)
+                    poly = poly.reshape((-1,1,2))
+                    cv2.drawContours(mask,[poly],0,255,-1)
+                    mean = cv2.mean(hsv,mask=mask)
+                    bgr = tuple(cv2.cvtColor(np.uint8([[[mean[0],mean[1],mean[2]]]]),cv2.COLOR_HSV2BGR)[0][0])
+                    good=True
+                    for color,count in colors.items():
+                        if dist.euclidean(color,bgr) < eucerror:
+                            colors[color] += 1
         captures += 1
 
-        cv2.imshow('testing things', edges)
+        cv2.imshow('testing things', s)
 
         if cv2.waitKey(25) & 0xFF == ord('q'):
             cv2.destroyAllWindows()
             break
-
-    """
-    CODE GRAVEYARD
-    
-    # make larger collection array
-    collected = None
-    captures = 0
-
-    while(captures < 500):
-        #print('capping')
-        sct_img = sct.grab(monitor)
-        board = np.array(sct_img)
-
-        #filter out some grossies
-        thresh = cv2.threshold(board, 90, 255, cv2.THRESH_TOZERO)[1]
-
-        #avg pool
-        pooledzero = skimage.measure.block_reduce(thresh[:, :, 0], (int(p), int(p)), np.median)
-        pooledone = skimage.measure.block_reduce(thresh[:, :, 1], (int(p), int(p)), np.median)
-        pooledtwo = skimage.measure.block_reduce(thresh[:, :, 2], (int(p), int(p)), np.median)
-
-        combo = np.dstack((pooledtwo,pooledone,pooledzero))
-
-        if collected is not None:
-            collected = np.vstack((collected,combo))
-        else:
-            collected = combo
-
-        captures += 1
-
-        cv2.imshow('testing things', thresh)
-        #plt.imshow((combo*255).astype(np.uint8))
-        #print('showing')
-        #plt.show()
-
-        if cv2.waitKey(25) & 0xFF == ord('q'):
-            cv2.destroyAllWindows()
-            break
-
-    # now need to flatten
-    dim = collected.shape[0]*10
-    collected = np.reshape(collected,(dim,3))
-
-    #kmeans clustering
-    clustered = MiniBatchKMeans(n_clusters=9,random_state=0).fit(collected)
-
-    fit = clustered.inertia_/dim
-
-    print('fit is ' + str(fit))
-
-    if fit > 700:
-        # probably not a board
-        print('probably not a board')
-        return
-    elif fit > 200:
-        print('could be a board - redo')
-        learn(x0,y0,p)
-        return
-    else:
-        print('probably a board')
-        print(clustered.cluster_centers_)
-    """
-
-
-
+    for color in colors:
+        print(color)
 
 
 screen_record(show=False)
