@@ -8,6 +8,7 @@ import ctypes
 import skimage.measure
 from sklearn.cluster import MiniBatchKMeans
 import matplotlib.pyplot as plt
+from math import sqrt, pow
 
 """
 okay time for the big hurrah
@@ -17,8 +18,8 @@ Implementation TODO:
 3. Find details of board and write to known once done?
 """
 recterror = .1
-polyerror = .05
-eucerror = 1
+polyerror = .1
+eucerror = 60
 
 # give two points, return the slope. Ez Pz
 def slope(p1,p2):
@@ -135,22 +136,28 @@ def screen_record(timetrial = False, capture='screen', show=False):
             if cv2.waitKey(25) & 0xFF == ord('q'):
                 cv2.destroyAllWindows()
                 break
+def threedist(x,y):
+    return sqrt(pow((int(x[0])-int(y[0])),2) + pow((int(x[1])-int(y[1])),2) + pow((int(x[2])-int(y[2])),2))
+
 
 def learn(x0,y0,p):
+    print('found game at ' + str(x0) + ' ' + str(y0) + ' ' + str(p))
     # for trying to learn suspected game
     w = int(10*p)
     h = int(20*p)
     sct = mss.mss()
-    monitor = {"top": y0-5, "left": x0-w, "width": w, "height": int(h/3)}
+    monitor = {"top": y0+2, "left": x0-w+2, "width": w, "height": int(h/3)}
 
     captures = 0
-    colors = {(0,0,0):0,(125,125,125):0}
+    colors = [np.array((0,0,0)),np.array((125,125,125))]
 
 
     #new method of isolating the pieces to learn color.
-    while(captures < 5000):
+    while(len(colors) < 9):
         sct_img = sct.grab(monitor)
         board = np.array(sct_img)
+        board = cv2.copyMakeBorder(board, 10, 10, 10, 10, cv2.BORDER_CONSTANT)
+        board = cv2.GaussianBlur(board, (5, 5), 5)
 
         #filter out some grossies
         board = cv2.threshold(board,120,255,cv2.THRESH_TOZERO)[1]
@@ -163,31 +170,74 @@ def learn(x0,y0,p):
         contours, hierarchy = cv2.findContours(edges, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
 
         if len(contours) > 0:
+            minerror = p*p*4*(1-polyerror)
+            maxerror = p*p*4*(1+polyerror)
             for c in contours:
                 peri = cv2.arcLength(c, True)
                 poly = cv2.approxPolyDP(c,.04 * peri,True)
                 a=p*p*4
                 real = cv2.contourArea(poly)
-                if p*p*4*(1-polyerror) < real < p*p*4*(1+polyerror):
-                    #print('we want ' + str(a) + ' but we got ' + str(real))
+                #print('found ' + str(real) + ' when we want min ' + str(minerror) + ' and max ' + str(maxerror))
+                if minerror < real < maxerror:
                     mask = np.zeros(hsv.shape[:2],dtype=np.uint8)
                     poly = poly.reshape((-1,1,2))
                     cv2.drawContours(mask,[poly],0,255,-1)
                     mean = cv2.mean(hsv,mask=mask)
-                    bgr = tuple(cv2.cvtColor(np.uint8([[[mean[0],mean[1],mean[2]]]]),cv2.COLOR_HSV2BGR)[0][0])
-                    good=True
-                    for color,count in colors.items():
-                        if dist.euclidean(color,bgr) < eucerror:
-                            colors[color] += 1
+                    bgr = cv2.cvtColor(np.uint8([[[mean[0],mean[1],mean[2]]]]),cv2.COLOR_HSV2BGR)[0][0]
+                    for i in range(0,2):
+                        bgr[i] = int(bgr[i])
+                    if sum(bgr) < 170:
+                        #trash find
+                        continue
+                    check = True
+                    for color in colors:
+                        if threedist(bgr,color) < eucerror:
+                            #print('inside with a less than eucerror')
+                            check = False
+                            break
+                    if check:
+                        print('adding ' + str(bgr))
+                        colors.append(bgr)
+
         captures += 1
 
-        cv2.imshow('testing things', s)
+        cv2.imshow('testing things', thresh)
 
         if cv2.waitKey(25) & 0xFF == ord('q'):
             cv2.destroyAllWindows()
             break
+
     for color in colors:
-        print(color)
+        print(str(color))
+
+"""
+CODE GRAVEYARD
+
+    # make larger collection array
+    collected = None
+    captures = 0
+
+    while(captures < 500):
+        #print('capping')
+        sct_img = sct.grab(monitor)
+        board = np.array(sct_img)
+
+        #filter out some grossies
+        thresh = cv2.threshold(board, 90, 255, cv2.THRESH_TOZERO)[1]
+
+        #avg pool
+        pooledzero = skimage.measure.block_reduce(thresh[:, :, 0], (int(p), int(p)), np.median)
+        pooledone = skimage.measure.block_reduce(thresh[:, :, 1], (int(p), int(p)), np.median)
+        pooledtwo = skimage.measure.block_reduce(thresh[:, :, 2], (int(p), int(p)), np.median)
+
+        combo = np.dstack((pooledtwo,pooledone,pooledzero))
+
+        if collected is not None:
+            collected = np.vstack((collected,combo))
+        else:
+            collected = combo
+"""
 
 
 screen_record(show=False)
+#learn(2299,304,28)
