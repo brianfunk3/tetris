@@ -10,16 +10,9 @@ from sklearn.cluster import MiniBatchKMeans
 import matplotlib.pyplot as plt
 from math import sqrt, pow
 
-"""
-okay time for the big hurrah
-Implementation TODO:
-1. Identify blank Tetris boards (binary)
-2. Watch found board and check to see if if makes sense as a board?
-3. Find details of board and write to known once done?
-"""
 recterror = .1
 polyerror = .1
-eucerror = 60
+eucerror = 110
 
 # give two points, return the slope. Ez Pz
 def slope(p1,p2):
@@ -148,12 +141,34 @@ def learn(x0,y0,p):
     sct = mss.mss()
     monitor = {"top": y0+2, "left": x0-w+2, "width": w, "height": int(h/3)}
 
+    error = eucerror
+    perror = polyerror
+    success_error = 15
     captures = 0
     colors = [np.array((0,0,0)),np.array((125,125,125))]
-
+    successes = []
 
     #new method of isolating the pieces to learn color.
-    while(len(colors) < 9):
+    while(True):
+        if len(colors) == 9:
+            #check successes
+            if min(successes) >= 5:
+                #criteria met
+                print('Huzzah, board found lets get it')
+                break
+        if len(colors) > 9:
+            #consolidate
+            print('need to consolidate board, exiting for now...')
+            break
+        if captures > 500:
+            error = error - 3
+            perror = perror + .01
+            print('lowering error, it is now ' + str(error))
+            if error < 40:
+                #error too low
+                print('error too low, at this point there is not confidence in the board. Exiting...')
+                break
+            captures = 0
         sct_img = sct.grab(monitor)
         board = np.array(sct_img)
         board = cv2.copyMakeBorder(board, 10, 10, 10, 10, cv2.BORDER_CONSTANT)
@@ -170,8 +185,8 @@ def learn(x0,y0,p):
         contours, hierarchy = cv2.findContours(edges, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
 
         if len(contours) > 0:
-            minerror = p*p*4*(1-polyerror)
-            maxerror = p*p*4*(1+polyerror)
+            minerror = p*p*4*(1-perror)
+            maxerror = p*p*4*(1+perror)
             for c in contours:
                 peri = cv2.arcLength(c, True)
                 poly = cv2.approxPolyDP(c,.04 * peri,True)
@@ -183,25 +198,38 @@ def learn(x0,y0,p):
                     poly = poly.reshape((-1,1,2))
                     cv2.drawContours(mask,[poly],0,255,-1)
                     mean = cv2.mean(hsv,mask=mask)
-                    bgr = cv2.cvtColor(np.uint8([[[mean[0],mean[1],mean[2]]]]),cv2.COLOR_HSV2BGR)[0][0]
-                    for i in range(0,2):
-                        bgr[i] = int(bgr[i])
-                    if sum(bgr) < 170:
+                    bgr = cv2.cvtColor(np.uint8([[[mean[0],mean[1],mean[2]]]]),cv2.COLOR_HSV2BGR)[0][0].astype(float)
+                    if sum(bgr) < 160:
                         #trash find
                         continue
-                    check = True
-                    for color in colors:
-                        if threedist(bgr,color) < eucerror:
-                            #print('inside with a less than eucerror')
-                            check = False
+                    for i in range(0,len(colors)):
+                        #print('current color len is ' + str(len(colors)) + ' and the current color is ' + str(colors[i]) + ' also i is ' + str(i))
+                        dist = threedist(bgr,colors[i])
+                        #print('dist is ' + str(dist))
+                        if dist < success_error:
+                            #add successful match
+                            #print('success')
+                            successes[i-2] = successes[i-2] + 1
                             break
-                    if check:
-                        print('adding ' + str(bgr))
-                        colors.append(bgr)
+                        elif dist < error:
+                            #print('average')
+                            #average the two together
+                            #print('bgr is ' + str(bgr))
+                            #print(str(type(bgr)))
+                            #print('colors[i] is ' + str(colors[i]))
+                            #print(str(type(colors[i])))
+                            colors[i] = (colors[i] + bgr) / 2
+                            #print('new average is ' + str(colors[i]))
+                            break
+                        elif i == len(colors)-1:
+                            print('adding ' + str(bgr))
+                            colors.append(bgr)
+                            successes.append(0)
+                            break
 
         captures += 1
 
-        cv2.imshow('testing things', thresh)
+        #cv2.imshow('testing things', thresh)
 
         if cv2.waitKey(25) & 0xFF == ord('q'):
             cv2.destroyAllWindows()
