@@ -9,6 +9,7 @@ import skimage.measure
 from sklearn.cluster import KMeans
 import matplotlib.pyplot as plt
 from math import sqrt, pow
+from itertools import product
 
 recterror = .1
 polyerror = .05
@@ -79,17 +80,18 @@ def screen_record(timetrial = False, capture='screen', show=False):
         # smooth the image
         #smooth = cv2.GaussianBlur(gray,(5,5),0)
         # threshold the image - actually a bad idea for color lol
-
-        gray = cv2.cvtColor(printscreen, cv2.COLOR_BGR2GRAY)
+        board = cv2.threshold(printscreen, 130, 255, cv2.THRESH_TOZERO)[1]
+        hsvbig = cv2.cvtColor(board, cv2.COLOR_BGR2HSV)
+        h, s, v = cv2.split(hsvbig)
 
         #threshhold to normalize some of the weirdness
         #round darks to same
-        thresh = cv2.threshold(gray,105,255,cv2.THRESH_TOZERO)[1]
+        thresh = cv2.threshold(v,100,255,cv2.THRESH_BINARY)[1]
         #round lights to same
         #thresh = cv2.threshold(thresh, 200, 255, cv2.THRESH_TOZERO_INV)[1]
 
         # edge detection
-        edges = cv2.Canny(thresh,100,500)
+        edges = cv2.Canny(thresh,500,800)
         # find contours
         contours, hierarchy = cv2.findContours(edges, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
         # approximate the polys (if existent)?
@@ -102,6 +104,7 @@ def screen_record(timetrial = False, capture='screen', show=False):
                     # polygon has 4 vertices, now need to check if it is tetris-y?
                     poly = clock_order(poly.reshape(-1,2))
                     if tetrisy(poly):
+                        print(poly)
                         # at this point, blank board has been found so now need to matrify and learn
                         # approximate true shape/size
                         x1 = (poly[3][0] + poly[0][0])/2
@@ -112,8 +115,37 @@ def screen_record(timetrial = False, capture='screen', show=False):
                         px = (x2-x1)/10
                         py = (y1-y2)/20
                         avp = round((px+py)/2,0)
-                        learn(int(x2),int(y2),avp)
-                        exit()
+                        r = 5
+                        l = list(product(range(int(x2-r), int(x2+r), 1), range(int(y2-r), int(y2+r), 1)))
+                        besterror = px*py*avp*1.5
+                        print(besterror)
+                        bestpoint = (-1,-1)
+                        for pair in l:
+                            # cut printscreen to correct dimensions
+                            x=pair[0]
+                            y=pair[1]
+                            cropped = printscreen[y:y + int(20 * avp), x:x + int(10 * avp)]
+
+                            # put it through the blender
+                            board = cv2.GaussianBlur(cropped, (5, 5), 5)
+                            board = cv2.threshold(board, 130, 255, cv2.THRESH_TOZERO)[1]
+                            hsv = cv2.cvtColor(board, cv2.COLOR_BGR2HSV)
+                            h, s, v = cv2.split(hsv)
+                            thresh = cv2.threshold(s, 200, 255, cv2.THRESH_BINARY)[1]
+
+                            #find summation error and compa
+                            error = sum(sum(thresh))
+                            if error < besterror:
+                                besterror = error
+                                bestpoint = pair
+
+                        if bestpoint is (-1,-1):
+                            print('error is sad, trying again')
+                            continue
+                        else:
+                            print('bestpoint is ' + str(bestpoint) + ' with an error of ' + str(besterror))
+                            learn(bestpoint[0],bestpoint[1],avp)
+
                         # saving these in case I want to draw again
                         #poly = poly.reshape((-1,1,2))
                         #cv2.polylines(printscreen,np.int32([poly]),True,(0,255,0), thickness=3)
@@ -124,7 +156,7 @@ def screen_record(timetrial = False, capture='screen', show=False):
 
         # show the screen
         if show:
-            cv2.imshow('testing things', printscreen)
+            cv2.imshow('testing things', edges)
 
             if cv2.waitKey(25) & 0xFF == ord('q'):
                 cv2.destroyAllWindows()
@@ -142,7 +174,7 @@ def learn(x0,y0,p):
     w = int(10*p)
     h = int(20*p)
     sct = mss.mss()
-    monitor = {"top": y0+2, "left": x0-w+2, "width": w, "height": int(h/4)}
+    monitor = {"top": y0, "left": x0-w, "width": w, "height": int(h)}
 
     error = eucerror
     perror = polyerror
@@ -153,93 +185,24 @@ def learn(x0,y0,p):
 
     #new method of isolating the pieces to learn color.
     while(True):
-        if len(colors) == 9:
-            #check successes
-            if min(successes) >= 2:
-                #criteria met
-                print('Huzzah, board found lets get it')
-                break
-        if len(colors) > 9:
-            #consolidate
-            newcol = consolidate(colors)
-            if len(newcol) < len(colors):
-                #print('sucessful consolidation. previous len was ' + str(len(colors)) + ' and it is now ' + str(len(newcol)))
-                colors = newcol
-                successes = [0] * (len(colors)-2)
-        if captures > 200:
-            #error = error - 5
-            perror = .15
-            #success_error += 2
-            print('increasing success error, it is now ' + str(success_error))
-            if success_error > 60:
-                #error too low
-                print('error too low, at this point there is not confidence in the board. Exiting...')
-                break
-            captures = 0
         sct_img = sct.grab(monitor)
         board = np.array(sct_img)
-        board = cv2.copyMakeBorder(board, 10, 10, 10, 10, cv2.BORDER_CONSTANT)
+        #board = cv2.copyMakeBorder(board, 10, 10, 10, 10, cv2.BORDER_CONSTANT)
         board = cv2.GaussianBlur(board, (5, 5), 5)
 
         #filter out some grossies
-        board = cv2.threshold(board,120,255,cv2.THRESH_TOZERO)[1]
+        board = cv2.threshold(board,130,255,cv2.THRESH_TOZERO)[1]
         hsv = cv2.cvtColor(board,cv2.COLOR_BGR2HSV)
         h,s,v = cv2.split(hsv)
-        thresh = cv2.threshold(s, 100, 255, cv2.THRESH_BINARY)[1]
+        thresh = cv2.threshold(s, 200, 255, cv2.THRESH_BINARY)[1]
         #LOOK UP THRESHOLIND THINGS
-        edges = cv2.Canny(thresh,500,1000)
-        # find contours
-        contours, hierarchy = cv2.findContours(edges, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-
-        if len(contours) > 0:
-            minerror = p*p*4*(1-perror)
-            maxerror = p*p*4*(1+perror)
-            for c in contours:
-                peri = cv2.arcLength(c, True)
-                poly = cv2.approxPolyDP(c,.04 * peri,True)
-                a=p*p*4
-                real = cv2.contourArea(poly)
-                #print('found ' + str(real) + ' when we want min ' + str(minerror) + ' and max ' + str(maxerror))
-                if minerror < real < maxerror:
-                    mask = np.zeros(hsv.shape[:2],dtype=np.uint8)
-                    poly = poly.reshape((-1,1,2))
-                    cv2.drawContours(mask,[poly],0,255,-1)
-                    mean = cv2.mean(hsv,mask=mask)
-                    bgr = cv2.cvtColor(np.uint8([[[mean[0],mean[1],mean[2]]]]),cv2.COLOR_HSV2BGR)[0][0].astype(float)
-                    if max(bgr) < 130:
-                        #trash find
-                        continue
-                    for i in range(0,len(colors)):
-                        #print('current color len is ' + str(len(colors)) + ' and the current color is ' + str(colors[i]) + ' also i is ' + str(i))
-                        dist = threedist(bgr,colors[i])
-                        #print('dist is ' + str(dist))
-                        if dist < success_error:
-                            #add successful match
-                            #print('success')
-                            colors[i] = (colors[i] + bgr) / 2
-                            successes[i-2] = successes[i-2] + 1
-                            break
-                        elif i == len(colors)-1:
-                            print('adding ' + str(bgr))
-                            colors.append(bgr)
-                            successes.append(0)
-                            break
-
         captures += 1
 
-        #cv2.imshow('testing things', thresh)
+        cv2.imshow('testing things', s)
 
         if cv2.waitKey(25) & 0xFF == ord('q'):
             cv2.destroyAllWindows()
             break
-
-    colormat = 255 * np.ones([100,900,3])
-
-    for i in range(0,len(colors)):
-        print('at i, color is ' + str(colors[i]))
-        cv2.rectangle(colormat,(i*100,0),((i+1)*100,100),color=(int(colors[i][0]),int(colors[i][1]),int(colors[i][2])),thickness=-1)
-    cv2.imshow('testing things', colormat)
-    cv2.imwrite('board_colors.jpg',colormat)
 
 """
 CODE GRAVEYARD
