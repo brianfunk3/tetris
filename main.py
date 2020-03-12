@@ -6,13 +6,13 @@ import mss
 from scipy.spatial import distance as dist
 import ctypes
 import skimage.measure
-from sklearn.cluster import MiniBatchKMeans
+from sklearn.cluster import KMeans
 import matplotlib.pyplot as plt
 from math import sqrt, pow
 
 recterror = .1
-polyerror = .1
-eucerror = 110
+polyerror = .05
+eucerror = 65
 
 # give two points, return the slope. Ez Pz
 def slope(p1,p2):
@@ -132,6 +132,9 @@ def screen_record(timetrial = False, capture='screen', show=False):
 def threedist(x,y):
     return sqrt(pow((int(x[0])-int(y[0])),2) + pow((int(x[1])-int(y[1])),2) + pow((int(x[2])-int(y[2])),2))
 
+def consolidate(points):
+    kmeans = KMeans(n_clusters = 9).fit(points)
+    return kmeans.cluster_centers_.tolist()
 
 def learn(x0,y0,p):
     print('found game at ' + str(x0) + ' ' + str(y0) + ' ' + str(p))
@@ -139,11 +142,11 @@ def learn(x0,y0,p):
     w = int(10*p)
     h = int(20*p)
     sct = mss.mss()
-    monitor = {"top": y0+2, "left": x0-w+2, "width": w, "height": int(h/3)}
+    monitor = {"top": y0+2, "left": x0-w+2, "width": w, "height": int(h/4)}
 
     error = eucerror
     perror = polyerror
-    success_error = 15
+    success_error = 40
     captures = 0
     colors = [np.array((0,0,0)),np.array((125,125,125))]
     successes = []
@@ -152,19 +155,23 @@ def learn(x0,y0,p):
     while(True):
         if len(colors) == 9:
             #check successes
-            if min(successes) >= 5:
+            if min(successes) >= 2:
                 #criteria met
                 print('Huzzah, board found lets get it')
                 break
         if len(colors) > 9:
             #consolidate
-            print('need to consolidate board, exiting for now...')
-            break
-        if captures > 500:
-            error = error - 3
-            perror = perror + .01
-            print('lowering error, it is now ' + str(error))
-            if error < 40:
+            newcol = consolidate(colors)
+            if len(newcol) < len(colors):
+                #print('sucessful consolidation. previous len was ' + str(len(colors)) + ' and it is now ' + str(len(newcol)))
+                colors = newcol
+                successes = [0] * (len(colors)-2)
+        if captures > 200:
+            #error = error - 5
+            perror = .15
+            #success_error += 2
+            print('increasing success error, it is now ' + str(success_error))
+            if success_error > 60:
                 #error too low
                 print('error too low, at this point there is not confidence in the board. Exiting...')
                 break
@@ -199,7 +206,7 @@ def learn(x0,y0,p):
                     cv2.drawContours(mask,[poly],0,255,-1)
                     mean = cv2.mean(hsv,mask=mask)
                     bgr = cv2.cvtColor(np.uint8([[[mean[0],mean[1],mean[2]]]]),cv2.COLOR_HSV2BGR)[0][0].astype(float)
-                    if sum(bgr) < 160:
+                    if max(bgr) < 130:
                         #trash find
                         continue
                     for i in range(0,len(colors)):
@@ -209,17 +216,8 @@ def learn(x0,y0,p):
                         if dist < success_error:
                             #add successful match
                             #print('success')
-                            successes[i-2] = successes[i-2] + 1
-                            break
-                        elif dist < error:
-                            #print('average')
-                            #average the two together
-                            #print('bgr is ' + str(bgr))
-                            #print(str(type(bgr)))
-                            #print('colors[i] is ' + str(colors[i]))
-                            #print(str(type(colors[i])))
                             colors[i] = (colors[i] + bgr) / 2
-                            #print('new average is ' + str(colors[i]))
+                            successes[i-2] = successes[i-2] + 1
                             break
                         elif i == len(colors)-1:
                             print('adding ' + str(bgr))
@@ -235,8 +233,13 @@ def learn(x0,y0,p):
             cv2.destroyAllWindows()
             break
 
-    for color in colors:
-        print(str(color))
+    colormat = 255 * np.ones([100,900,3])
+
+    for i in range(0,len(colors)):
+        print('at i, color is ' + str(colors[i]))
+        cv2.rectangle(colormat,(i*100,0),((i+1)*100,100),color=(int(colors[i][0]),int(colors[i][1]),int(colors[i][2])),thickness=-1)
+    cv2.imshow('testing things', colormat)
+    cv2.imwrite('board_colors.jpg',colormat)
 
 """
 CODE GRAVEYARD
