@@ -70,7 +70,7 @@ def screen_record(timetrial = False, capture='screen', show=False):
 
     while(True):
         if capture == 'screen':
-            monitor = {"top": 0, "left": 0, "width": screensize[0], "height": screensize[1]}
+            monitor = {"top": 0, "left": 0, "width": int(screensize[0]/2), "height": screensize[1]}
             sct_img = sct.grab(monitor)
             printscreen = np.array(sct_img)
         elif capture == 'cam':
@@ -86,14 +86,15 @@ def screen_record(timetrial = False, capture='screen', show=False):
 
         #threshhold to normalize some of the weirdness
         #round darks to same
-        thresh = cv2.threshold(v,100,255,cv2.THRESH_BINARY)[1]
+        #thresh = cv2.threshold(h,100,255,cv2.THRESH_BINARY)[1]
         #round lights to same
         #thresh = cv2.threshold(thresh, 200, 255, cv2.THRESH_TOZERO_INV)[1]
 
         # edge detection
-        edges = cv2.Canny(thresh,500,800)
+        edges = cv2.Canny(h,100,300)
         # find contours
         contours, hierarchy = cv2.findContours(edges, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+        contours = []
         # approximate the polys (if existent)?
         if len(contours) > 0:
             for c in contours:
@@ -233,5 +234,5 @@ CODE GRAVEYARD
 """
 
 
-screen_record(show=False)
+screen_record(show=True)
 #learn(2299,304,28)
