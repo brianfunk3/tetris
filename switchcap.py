@@ -12,8 +12,7 @@ cap.set(3,1920)
 cap.set(4,1080)
 
 # mixed allowance
-error = .1
-classerror = .3
+error = .85
 
 # read in saved games
 saved = []
@@ -32,7 +31,8 @@ matches = [0] * len(saved)
 current = None
 currentMisses = 0
 sames = 0
-prevFrame = None
+prevArea = None
+prevGrey = None
 tetrises = 0
 triples = 0
 doubles = 0
@@ -46,7 +46,8 @@ while(True):
     #board = cv2.threshold(frame, 80, 255, cv2.THRESH_TOZERO)[1]
     hsvbig = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
     h, s, v = cv2.split(hsvbig)
-    threshv = cv2.threshold(v,110,255,cv2.THRESH_BINARY)[1]
+    satmask = cv2.threshold(s,90,255,cv2.THRESH_BINARY_INV)[1]
+    threshv = cv2.threshold(v,110,255,cv2.THRESH_BINARY)[1] - satmask
 
     #check error on the frame for each game
     #CLEAN UP LATER!!!!
@@ -55,8 +56,8 @@ while(True):
         for i in range(0,len(saved)):
             board = threshv[saved[i][1]:saved[i][1] + int(20 * saved[i][2]), saved[i][0]:saved[i][0] + int(10 * saved[i][2])]
             means = skimage.measure.block_reduce(board, (int(saved[i][2]), int(saved[i][2])), np.mean)/255
-            goods = np.count_nonzero((means < error))
-            if goods >= 199:
+            area = np.count_nonzero(means >= error) + np.count_nonzero(means <= (1-error))
+            if area >= 195:
                 matches[i] = min(matches[i]+1, 15)
             else:
                 matches[i] = 0
@@ -65,66 +66,88 @@ while(True):
                 #find index of max value
                 ind = matches.index(max(matches))
                 # check that current frame does not equal prev frame for stationary failure
-                if not np.array_equal(np.around(means,0), prevFrame):
+                #if np.count_nonzero(means >= .8) != prevArea:
                     #print('welp')
-                    current = saved[ind]
+                current = saved[ind]
     else:
         # check current game errorq
+        #cv2.rectangle(frame, (current[0], current[1]), (current[0] + (10 * current[2]), current[1] + (20 * current[2])),
+         #             color=(0, 255, 0), thickness=3)
         board = threshv[current[1]:current[1] + int(20 * current[2]), current[0]:current[0] + int(10 * current[2])]
         means = skimage.measure.block_reduce(board, (int(current[2]), int(current[2])), np.mean) / 255
-        goods = np.count_nonzero((means < classerror) | (means > (1 - classerror)))
-        # check # of error squares
-        if goods <= 185:
-            currentMisses += 1
-        else:
-            cv2.rectangle(frame, (current[0], current[1]), (current[0] + (10 * current[2]), current[1] + (20 * current[2])), color=(0, 255, 0), thickness=3)
-            currentMisses = 0
-
         # check frame consistency
-        rounded = np.around(means/.5, 0)*.5
-        if prevFrame is not None and np.array_equal(rounded, prevFrame):
-            #print('sames now at ' + str(sames))
-            sames += 1
+        realarea = np.count_nonzero(means >= error)
+        empties = np.count_nonzero(means <= (1-error))
+        satboard = satmask[current[1]:current[1] + int(20 * current[2]), current[0]:current[0] + int(10 * current[2])]
+        satmeans = skimage.measure.block_reduce(satboard, (int(current[2]), int(current[2])), np.mean) / 255
+        greys = np.count_nonzero(satmeans > .7)
+        #print('greys: ' + str(greys))
+        #print('realarea: ' + str(realarea))
+
+        if prevArea is None:
+            if realarea >= 4:
+                print('game start')
+                prevArea = realarea
+                prevGrey = greys
+                currentMisses = 0
+                continue
+            else:
+                currentMisses += 1
+                continue
         else:
-            sames = 0
+            if realarea < 4:
+                currentMisses += 1
 
         # check for exit
-        if currentMisses >= 30 or sames >= 100:
+        if currentMisses >= 160:
+            print('exiting game :(')
+
             print('---GAMES STATS---')
             print('TETRISES: ' + str(tetrises))
             print('TRIPLES: ' + str(triples))
             print('DOUBLES: ' + str(doubles))
             print('SINGLES: ' + str(singles))
+            
             sames = 0
             currentMisses = 0
             tetrises = 0
             triples = 0
             doubles = 0
             singles = 0
+            prevArea = None
+            realarea = None
+            prevGrey = None
             current = None
-        # check for change in top row (IE interpret board)
-        if prevFrame is not None and np.sum(prevFrame) != np.sum(rounded):
-            clears = (np.count_nonzero(prevFrame == 1) - np.count_nonzero(rounded == 1))
-            #print(str(clears))
-            if 40 >= clears >= 36:
+            continue
+
+        #print('prevarea is ' + str(prevArea) + ' and current area is ' + str(realarea))
+
+        if realarea+empties >= 190:
+            if (prevGrey-greys) > 0 and greys % 9 == 0:
+                greyadd = greys/9
+            else:
+                greyadd = 0
+            clears = (prevArea - realarea) + greyadd
+            #print(clears)
+            if clears >= 40:
                 print('TETRIS')
                 tetrises += 1
-            elif 30 >= clears >= 26:
+            elif clears >= 30:
                 print('TRIPLE')
                 triples += 1
-            elif 20 >= clears >= 16:
+            elif clears >= 20:
                 print('DOUBLE')
                 doubles += 1
-            elif 10 >= clears >= 6:
+            elif clears >= 10:
                 print('SINGLE')
                 singles += 1
             # if it hits nones of these then its probably some garbage and I don't want it lol
 
+            # update area when sure of everything
+            prevArea=realarea
+            prevGrey = greys
 
-        prevFrame = rounded
-
-
-    #cv2.imshow('Tetris', frame)
+    #cv2.imshow('Tetris', threshv)
 
     if cv2.waitKey(1) & 0xFF == ord('q'):
         break
